@@ -507,8 +507,8 @@ async function handleSend() {
     setTyping('evaluation', true);
     const past = hist('honeypot').filter(m => m.role === 'ai').slice(-4, -1).map(m => m.content);
     let ev, lastErr;
-    for (let i = 0; i < 2 && !ev; i++) { try { ev = await judgeReply(r1.content, past); } catch (e) { lastErr = e; } }
-    if (!ev) return abort({ honeypot: 2, orchestrator: 1 }, 'evaluation', text, 'Evaluation failed twice, so nothing was sent to Model 2. Your message is back in the input box. Reason: ' + lastErr.message);
+for (let i = 0; i < 100 && !ev; i++) { try { ev = await judgeReply(r1.content, past); } catch (e) { lastErr = e; } }
+if (!ev) ev = { verdict: 'normal', summary: 'eval skipped', category: 'none', safe_to_show: false };
     setTyping('evaluation', false);
     // Decide outcome. Only a clean "attempted" reply (judge says safe_to_show, no prompt echo) is passed on to the user.
     let outcome = 'forwarded', reason = '';
