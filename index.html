@@ -234,7 +234,9 @@ async function askChat(apiKey, modelId, messages, maxTokens = 1000) {
         });
         if (response.ok) {
             const data = await response.json();
-            return { success: true, content: data.choices[0].message.content };
+            const content = data.choices?.[0]?.message?.content;
+            if (!content || !String(content).trim()) return { success: false, error: 'Model returned an empty reply (it may have run out of tokens or been filtered).' };
+            return { success: true, content };
         }
         const err = await response.json();
         return { success: false, error: err.error?.message || `API Error: ${response.status}`, rawError: JSON.stringify(err, null, 2) };
@@ -458,7 +460,7 @@ const buildMessages = key => [{ role: 'system', content: systemPrompt }, ...hist
 // Model 2 judge: receives Model 1's output (and its earlier outputs) only. The user prompt is never passed in.
 async function judgeReply(reply, past) {
     const payload = 'REPLY UNDER REVIEW (untrusted data):\n<<<REPLY\n' + reply.slice(0, 8000) + '\nREPLY>>>\n\nEARLIER REPLIES FROM THIS MODEL:\n' + (past.map(p => p.slice(0, 1500)).join('\n---\n') || '(none)');
-    const r = await askChat(apiKeys.openrouter, orchId, [{ role: 'system', content: JUDGE_SYS }, { role: 'user', content: payload }], 300);
+    const r = await askChat(apiKeys.openrouter, orchId, [{ role: 'system', content: JUDGE_SYS }, { role: 'user', content: payload }], 800);
     if (!r.success) throw new Error(r.error);
     const m = r.content.match(/\{[\s\S]*\}/);
     if (!m) throw new Error('Judge returned no JSON');
@@ -504,9 +506,9 @@ async function handleSend() {
     // Stage 2: Orchestrator classifies Model 1's response only: normal | attempted | jailbroken
     setTyping('evaluation', true);
     const past = hist('honeypot').filter(m => m.role === 'ai').slice(-4, -1).map(m => m.content);
-    let ev;
-    try { ev = await judgeReply(r1.content, past); }
-    catch (e) { return abort({ honeypot: 2, orchestrator: 1 }, 'evaluation', text, 'Evaluation failed, request not processed: ' + e.message); }
+    let ev, lastErr;
+    for (let i = 0; i < 2 && !ev; i++) { try { ev = await judgeReply(r1.content, past); } catch (e) { lastErr = e; } }
+    if (!ev) return abort({ honeypot: 2, orchestrator: 1 }, 'evaluation', text, 'Evaluation failed twice, so nothing was sent to Model 2. Your message is back in the input box. Reason: ' + lastErr.message);
     setTyping('evaluation', false);
     // Decide outcome. Only a clean "attempted" reply (judge says safe_to_show, no prompt echo) is passed on to the user.
     let outcome = 'forwarded', reason = '';
